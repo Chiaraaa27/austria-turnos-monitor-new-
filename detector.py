@@ -1,5 +1,4 @@
 import os
-import re
 import urllib.request
 from playwright.sync_api import sync_playwright
 
@@ -14,7 +13,7 @@ def avisar(mensaje):
     req = urllib.request.Request(
         f"https://ntfy.sh/{TOPIC}",
         data=mensaje.encode("utf-8"),
-        headers={"Title": "Turno Austria Working Holiday"},
+        headers={"Title": "Posible turno Austria Working Holiday"},
         method="POST",
     )
     urllib.request.urlopen(req, timeout=15).close()
@@ -38,12 +37,30 @@ with sync_playwright() as p:
         elif "Actualmente no hay fechas disponibles" in texto:
             print("Sin turnos disponibles en la semana mostrada.")
         else:
-            horarios = re.findall(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b", texto)
-            if horarios:
-                print("Posible turno detectado. Revisar manualmente.")
-                avisar("POSIBLE TURNO Working Holiday Austria. Revisá: " + URL)
+            # No asumimos que la ausencia del mensaje rojo significa que haya turnos.
+            # Inspeccionamos controles habilitados dentro de la página del calendario.
+            controles = page.locator(
+                'input[type="radio"]:enabled, '
+                'input[type="checkbox"]:enabled, '
+                'select:enabled, '
+                'button:enabled, '
+                'a[href]'
+            )
+            candidatos = []
+            for i in range(min(controles.count(), 100)):
+                control = controles.nth(i)
+                etiqueta = (control.get_attribute("aria-label") or "") + " " + (
+                    control.get_attribute("value") or ""
+                ) + " " + (control.inner_text(timeout=2000) or "")
+                etiqueta = etiqueta.strip()
+                if any(x in etiqueta.lower() for x in ("reservar", "seleccionar cita", "elegir hora")):
+                    candidatos.append(etiqueta)
+            if candidatos:
+                print("Posible opción de reserva detectada:", candidatos[:3])
+                avisar("POSIBLE TURNO Working Holiday Austria. Verificá el sitio oficial: " + URL)
             else:
-                print("Resultado no concluyente. Sin alerta.")
+                print("Calendario diferente al habitual, pero sin opción de reserva confirmada. Sin alerta.")
+
         print("URL final:", page.url)
     except Exception as error:
         print("ERROR al revisar:", error)
